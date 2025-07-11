@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin", "superadmin"],
       default: "user",
     },
+    expoPushToken: { type: String, required: false, default: "" },
   },
   { timestamps: true }
 );

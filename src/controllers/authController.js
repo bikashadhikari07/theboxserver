@@ -86,3 +86,23 @@ export const updateProfile = async (req, res) => {
     res.status(404).json({ message: "User not found" });
   }
 };
+
+// ✅ ADD THIS FUNCTION AT THE END
+export const savePushToken = async (req, res) => {
+  const user = await User.findById(req.user.id);
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  const { token } = req.body;
+  if (!token) {
+    return res.status(400).json({ message: "No push token provided" });
+  }
+
+  user.expoPushToken = token;
+
+  await user.save();
+
+  res.json({ message: "Push token saved successfully" });
+};
