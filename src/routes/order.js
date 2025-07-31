@@ -40,7 +40,7 @@ router.post("/pos", protect, isAdmin, createPOSOrder);
 
 router.get("/my", protect, getMyOrders);
 
-router.get("v", protect, isAdmin, getAllOrders);
+router.get("/admin/orders", protect, isAdmin, getAllOrders);
 router.put("/admin/orders/:id", protect, isAdmin, updateOrderStatus);
 router.delete("/admin/orders/:id", protect, isAdmin, deleteOrder);
 

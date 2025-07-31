@@ -17,5 +17,5 @@ router.get("/profile", protect, getProfile);
 router.put("/profile", protect, updateProfile);
 
 // ✅ Add push token route
-router.post("/save-token", protect, savePushToken);
+// router.post("/save-token", protect, savePushToken);
 export default router;
