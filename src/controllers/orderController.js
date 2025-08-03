@@ -17,65 +17,66 @@ export const createWaiterOrder = async (req, res) => {
     const { tableNo, items, remarks } = req.body;
     const user = req.user;
 
+    // ✅ Validate table number
     if (!tableNo || !VALID_TABLES.includes(tableNo)) {
-      return res.status(400).json({ message: "Invalid or missing tableNo" });
+      return res
+        .status(400)
+        .json({ message: "Invalid or missing table number." });
     }
 
+    // ✅ Validate items array
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: "Items are required" });
+      return res.status(400).json({ message: "Items are required." });
     }
 
-    // Fetch all products referenced in items once
+    // ✅ Fetch all products once
     const productIds = items.map((i) => i.product);
     const products = await Product.find({ _id: { $in: productIds } });
+
     if (products.length !== productIds.length) {
       return res
         .status(400)
-        .json({ message: "One or more product IDs are invalid" });
+        .json({ message: "One or more product IDs are invalid." });
     }
 
-    // Map products by id for quick access
-    const productMap = products.reduce((acc, p) => {
-      acc[p._id.toString()] = p;
-      return acc;
-    }, {});
+    // ✅ Map for quick lookup
+    const productMap = {};
+    products.forEach((p) => {
+      productMap[p._id.toString()] = p;
+    });
 
-    // ✅ Validate stock for each item
+    // ✅ Check stock for items that require stock
     for (const item of items) {
       const product = productMap[item.product.toString()];
-      if (!product) {
-        return res
-          .status(400)
-          .json({ message: `Product ${item.product} not found` });
-      }
-      if (product.stock < item.quantity) {
+
+      if (product.requiresStock && product.stock < item.quantity) {
         return res.status(400).json({
           message: `Not enough stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}`,
         });
       }
     }
 
-    // ✅ Deduct stock
+    // ✅ Deduct stock for items that require stock
     for (const item of items) {
       const product = productMap[item.product.toString()];
-      product.stock -= item.quantity;
-      await product.save();
+      if (product.requiresStock) {
+        product.stock -= item.quantity;
+        await product.save();
+      }
     }
 
-    // Prepare order items with remarks
+    // ✅ Prepare order data
     const populatedItems = items.map((item) => ({
       product: item.product,
       quantity: item.quantity,
       remarks: item.remarks || "",
     }));
 
-    // Calculate total
     const total = populatedItems.reduce((acc, item) => {
       const product = productMap[item.product.toString()];
       return acc + product.price * item.quantity;
     }, 0);
 
-    // Create order document
     const order = await Order.create({
       user: user._id,
       tableNo,
@@ -89,157 +90,15 @@ export const createWaiterOrder = async (req, res) => {
     res.status(201).json({ message: "Order placed", order });
   } catch (err) {
     console.error("Create waiter order error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error." });
   }
 };
-
-/**
- * For waiter app (box-app) users
- * POST /api/orders/waiter
- */
-// export const createWaiterOrder = async (req, res) => {
-//   try {
-//     const { tableNo, items, remarks } = req.body;
-//     const user = req.user;
-
-//     if (!tableNo || !VALID_TABLES.includes(tableNo)) {
-//       return res.status(400).json({ message: "Invalid or missing tableNo" });
-//     }
-
-//     if (!items || !Array.isArray(items) || items.length === 0) {
-//       return res.status(400).json({ message: "Items are required" });
-//     }
-
-//     // Fetch all products referenced in items once
-//     const productIds = items.map((i) => i.product);
-//     const products = await Product.find({ _id: { $in: productIds } });
-//     if (products.length !== productIds.length) {
-//       return res
-//         .status(400)
-//         .json({ message: "One or more product IDs are invalid" });
-//     }
-
-//     // Map products by id for quick access
-//     const productMap = products.reduce((acc, p) => {
-//       acc[p._id.toString()] = p;
-//       return acc;
-//     }, {});
-
-//     // Prepare order items with validation and remarks
-//     const populatedItems = items.map((item) => ({
-//       product: item.product,
-//       quantity: item.quantity,
-//       remarks: item.remarks || "",
-//     }));
-
-//     // Calculate total
-//     const total = populatedItems.reduce((acc, item) => {
-//       const product = productMap[item.product.toString()];
-//       return acc + product.price * item.quantity;
-//     }, 0);
-
-//     // Create order document
-//     const order = await Order.create({
-//       user: user._id,
-//       tableNo,
-//       placedBy: user.name,
-//       remarks,
-//       items: populatedItems,
-//       total,
-//       source: "box-app",
-//     });
-
-//     res.status(201).json({ message: "Order placed", order });
-//   } catch (err) {
-//     console.error("Create waiter order error:", err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
-
-// export const createWaiterOrder = async (req, res) => {
-//   try {
-//     const { tableNo, items, remarks } = req.body;
-//     const user = req.user;
-
-//     if (!tableNo || !VALID_TABLES.includes(tableNo)) {
-//       return res.status(400).json({ message: "Invalid or missing tableNo" });
-//     }
-
-//     if (!items || !Array.isArray(items) || items.length === 0) {
-//       return res.status(400).json({ message: "Items are required" });
-//     }
-
-//     // Fetch all products referenced in items once
-//     const productIds = items.map((i) => i.product);
-//     const products = await Product.find({ _id: { $in: productIds } });
-//     if (products.length !== productIds.length) {
-//       return res
-//         .status(400)
-//         .json({ message: "One or more product IDs are invalid" });
-//     }
-
-//     // Map products by id for quick access
-//     const productMap = products.reduce((acc, p) => {
-//       acc[p._id.toString()] = p;
-//       return acc;
-//     }, {});
-
-//     // ✅ Validate stock for each item
-//     for (const item of items) {
-//       const product = productMap[item.product.toString()];
-//       if (!product) {
-//         return res.status(400).json({ message: `Product ${item.product} not found` });
-//       }
-//       if (product.stock < item.quantity) {
-//         return res.status(400).json({
-//           message: `Not enough stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}`
-//         });
-//       }
-//     }
-
-//     // ✅ Deduct stock
-//     for (const item of items) {
-//       const product = productMap[item.product.toString()];
-//       product.stock -= item.quantity;
-//       await product.save();
-//     }
-
-//     // Prepare order items with remarks
-//     const populatedItems = items.map((item) => ({
-//       product: item.product,
-//       quantity: item.quantity,
-//       remarks: item.remarks || "",
-//     }));
-
-//     // Calculate total
-//     const total = populatedItems.reduce((acc, item) => {
-//       const product = productMap[item.product.toString()];
-//       return acc + product.price * item.quantity;
-//     }, 0);
-
-//     // Create order document
-//     const order = await Order.create({
-//       user: user._id,
-//       tableNo,
-//       placedBy: user.name,
-//       remarks,
-//       items: populatedItems,
-//       total,
-//       source: "box-app",
-//     });
-
-//     res.status(201).json({ message: "Order placed", order });
-
-//   } catch (err) {
-//     console.error("Create waiter order error:", err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
 
 /**
  * Admin - Get all orders
  * GET /api/admin/orders
  */
+
 export const getAllOrders = async (req, res) => {
   try {
     const orders = await Order.find()
