@@ -1,0 +1,434 @@
+import Order from "../models/Order.js";
+import Product from "../models/Product.js";
+import Customer from "../models/Customer.js";
+import Payment from "../models/Payment.js";
+const VALID_TABLES = [
+  "Table 1",
+  "Table 2",
+  "Table 3",
+  "Table 4",
+  "Table 5",
+  "Table 6",
+  "Table 7",
+  "Table 8",
+];
+
+export const createWaiterOrder = async (req, res) => {
+  try {
+    const { tableNo, items, remarks } = req.body;
+    const user = req.user;
+
+    // ✅ Validate table number
+    if (!tableNo || !VALID_TABLES.includes(tableNo)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid or missing table number." });
+    }
+
+    // ✅ Validate items array
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Items are required." });
+    }
+
+    // ✅ Fetch all products once
+    const productIds = items.map((i) => i.product);
+    const products = await Product.find({ _id: { $in: productIds } });
+
+    if (products.length !== productIds.length) {
+      return res
+        .status(400)
+        .json({ message: "One or more product IDs are invalid." });
+    }
+
+    // ✅ Map for quick lookup
+    const productMap = {};
+    products.forEach((p) => {
+      productMap[p._id.toString()] = p;
+    });
+
+    // ✅ Check stock for items that require stock
+    for (const item of items) {
+      const product = productMap[item.product.toString()];
+
+      if (product.requiresStock && product.stock < item.quantity) {
+        return res.status(400).json({
+          message: `Not enough stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}`,
+        });
+      }
+    }
+
+    // ✅ Deduct stock for items that require stock
+    for (const item of items) {
+      const product = productMap[item.product.toString()];
+      if (product.requiresStock) {
+        product.stock -= item.quantity;
+        await product.save();
+      }
+    }
+
+    // ✅ Prepare order data
+    const populatedItems = items.map((item) => ({
+      product: item.product,
+      quantity: item.quantity,
+      remarks: item.remarks || "",
+    }));
+
+    const total = populatedItems.reduce((acc, item) => {
+      const product = productMap[item.product.toString()];
+      return acc + product.price * item.quantity;
+    }, 0);
+
+    const order = await Order.create({
+      user: user._id,
+      tableNo,
+      placedBy: user.name,
+      remarks,
+      items: populatedItems,
+      total,
+      source: "box-app",
+      paymentMethod: "pending",
+      paymentStatus: "pending",
+    });
+
+    res.status(201).json({ message: "Order placed", order });
+  } catch (err) {
+    console.error("Create waiter order error:", err);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
+/**
+ * Admin - Get all orders
+ * GET /api/admin/orders
+ */
+
+export const getAllOrders = async (req, res) => {
+  try {
+    const orders = await Order.find()
+      .populate({
+        path: "customer", // was "user" before
+        select: "name email phone", // select what you need
+      })
+      .populate({
+        path: "items.product",
+        select: "name price",
+      })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(orders);
+  } catch (error) {
+    console.error("Fetch all orders error:", error);
+    res.status(500).json({ message: "Server error fetching orders" });
+  }
+};
+/**
+ * Admin - Update order status
+ * PUT /api/admin/orders/:id
+ */
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    )
+      .populate("user", "name email")
+      .populate("items.product");
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    res.json({ message: "Status updated", order });
+  } catch (err) {
+    console.error("Update order status error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Admin - Delete order
+ * DELETE /api/admin/orders/:id
+ */
+export const deleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndDelete(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    res.json({ message: "Order deleted successfully" });
+  } catch (err) {
+    console.error("Delete order error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/////cerate new custumer if not alredy
+export const createPOSOrder = async (req, res) => {
+  try {
+    const {
+      customerName,
+      phone,
+      customerId,
+      items,
+      total,
+      paymentMethod,
+      remarks,
+    } = req.body;
+
+    // ✅ Validate items and payment method
+    if (!items?.length) {
+      return res.status(400).json({ message: "Items are required" });
+    }
+    if (!paymentMethod) {
+      return res.status(400).json({ message: "Payment method is required" });
+    }
+
+    let customer = null;
+
+    // ✅ Use existing customer if ID provided
+    if (customerId) {
+      customer = await Customer.findById(customerId);
+      if (!customer)
+        return res.status(404).json({ message: "Customer not found" });
+    }
+    // ✅ Find by phone or create new customer
+    else if (phone) {
+      customer = await Customer.findOne({ phone });
+      if (!customer) {
+        customer = await Customer.create({ name: customerName, phone });
+      }
+    }
+
+    // ✅ If payment is credit, increase customer balance
+    if (paymentMethod === "credit" && customer) {
+      customer.creditBalance += total;
+      await customer.save();
+    }
+
+    // ✅ Create order
+    const order = await Order.create({
+      tableNo: null, // POS order, no table
+      customer: customer ? customer._id : null,
+      customerName: customer ? customer.name : customerName,
+      items,
+      total,
+      amountPaid: paymentMethod === "credit" ? 0 : total,
+      paymentMethod,
+      paymentStatus: paymentMethod === "credit" ? "pending" : "paid",
+      remarks: remarks || "",
+      source: "pos",
+    });
+
+    res.status(201).json({ message: "POS order created", order });
+  } catch (err) {
+    console.error("Create POS order error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ * Get orders for current logged-in user (waiter app)
+ * GET /api/orders/my
+ */
+export const getMyOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ user: req.user._id })
+      .populate("items.product")
+      .sort({ createdAt: -1 });
+
+    res.json(orders);
+  } catch (err) {
+    console.error("Fetch user orders error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Update payment
+ *  * POST /api/orders/
+ */
+export const updatePayment = async (req, res) => {
+  try {
+    const { paymentMethod, amountPaid } = req.body;
+    const orderId = req.params.id;
+
+    const order = await Order.findById(orderId).populate("customer");
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (!amountPaid && paymentMethod !== "credit") {
+      return res.status(400).json({ message: "Amount to pay required" });
+    }
+
+    let payAmount = 0;
+    const remaining = order.total - order.amountPaid;
+
+    // 1️⃣ Handle payment
+    if (paymentMethod === "credit") {
+      // Add remaining balance to customer credit
+      if (!order.customer)
+        return res
+          .status(400)
+          .json({ message: "Customer required for credit" });
+
+      order.customer.creditBalance =
+        (order.customer.creditBalance || 0) + remaining;
+      await order.customer.save();
+      order.paymentStatus = "pending"; // still unpaid
+      payAmount = 0; // nothing received yet
+    } else {
+      // Cash, card, or partial payment
+      payAmount = Math.min(amountPaid, remaining);
+      order.amountPaid += payAmount;
+
+      // Update order status
+      order.paymentStatus =
+        order.amountPaid >= order.total
+          ? "paid"
+          : order.amountPaid > 0
+          ? "partial"
+          : "pending";
+
+      // Deduct used credit automatically
+      if (order.customer && order.customer.creditBalance > 0) {
+        const creditUsed = Math.min(order.customer.creditBalance, payAmount);
+        order.customer.creditBalance -= creditUsed;
+        await order.customer.save();
+      }
+    }
+
+    // Update payment method (latest used)
+    order.paymentMethod = paymentMethod;
+    await order.save();
+
+    // 2️⃣ Record payment history
+    await Payment.create({
+      order: order._id,
+      customer: order.customer?._id,
+      amount: payAmount,
+      method: paymentMethod,
+    });
+
+    // 3️⃣ Recalculate total credit from all orders
+    if (order.customer) {
+      const orders = await Order.find({ customer: order.customer._id });
+      let newCredit = 0;
+      for (const o of orders) {
+        if (o.paymentMethod === "credit") {
+          const unpaid = o.total - o.amountPaid;
+          if (unpaid > 0) newCredit += unpaid;
+        }
+      }
+      order.customer.creditBalance = newCredit;
+      await order.customer.save();
+    }
+
+    res.json({ message: "Payment updated successfully", order });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/////////////////////////
+///////////////////
+///////////////////////////////////
+/**
+ * 
+ * 
+ * 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ * Get all orders with pending payment
+ * GET /api/orders/pending
+ */
+export const getPendingPayments = async (req, res) => {
+  try {
+    const orders = await Order.find({ paymentStatus: "pending" })
+      .populate("customer", "name phone creditBalance")
+      .populate("items.product")
+      .sort({ createdAt: -1 });
+
+    res.json({ message: "Pending payments fetched", orders });
+  } catch (err) {
+    console.error("Fetch pending payments error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// GET /orders/partial
+export const getPartialPayments = async (req, res) => {
+  try {
+    const orders = await Order.find({
+      paymentStatus: "partial",
+    })
+      .populate("customer")
+      .sort({ createdAt: -1 });
+
+    res.json(orders);
+  } catch (err) {
+    console.error("Fetch partial payments error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+//////////////////////////////////////
+//////
+export const getCustomerPayments = async (req, res) => {
+  try {
+    const customerId = req.params.id;
+
+    const payments = await Payment.find({ customer: customerId })
+      .populate("order")
+      .sort({ createdAt: -1 });
+
+    res.json({ message: "Payments fetched", payments });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/////////////////////////
+export const getOrderPayments = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+
+    const payments = await Payment.find({ order: orderId })
+      .populate("customer")
+      .sort({ createdAt: 1 });
+
+    res.json({ message: "Order payments", payments });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
