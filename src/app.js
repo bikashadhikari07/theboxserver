@@ -42,8 +42,8 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/payments", paymentRoutes);
 // Health check
-app.get("/", (req, res) => {
-  res.send("✅ E-commerce API is running...");
+app.get("/health", (req, res) => {
+  res.send("✅ Pos API is running...");
 });
 
 // Start server

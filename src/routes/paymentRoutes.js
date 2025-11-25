@@ -12,9 +12,9 @@ import { protect, isAdmin } from "../middleware/auth.js";
 const router = express.Router();
 
 // 🔹 Make a payment for a specific order (cash, partial, credit)
-router.post("/order/:id", updatePayment);
+router.post("/order/:id", protect, isAdmin, updatePayment);
 
 // 🔹 Get payment history for a specific order
-router.get("/order/:orderId", getPaymentHistory);
+router.get("/order/:orderId", protect, isAdmin, getPaymentHistory);
 
 export default router;
