@@ -58,28 +58,38 @@
 
 // export default router;
 
-// lets match our contRoller
-// routes/orderRoutes.js
+///
 import express from "express";
 import {
   createWaiterOrder,
   createPOSOrder,
   getAllOrders,
   getMyOrders,
+  updateWaiterOrder,
+  deleteOrderById,
 } from "../controllers/orderController.js";
 
-import { protect, isAdmin } from "../middleware/auth.js";
+import { protect, isAdmin, hasRole } from "../middleware/auth.js";
 
 const router = express.Router();
 
 // --- Order Creation Routes ---
-router.post("/waiter", protect, createWaiterOrder); // Waiter app order
-router.post("/pos", protect, isAdmin, createPOSOrder); // POS order
+router.post("/waiter", protect, hasRole("waiter"), createWaiterOrder);
+router.put(
+  "/waiter/:id",
+  protect,
+  hasRole("waiter", "admin"),
+  updateWaiterOrder
+);
+
+router.delete("/:id", protect, hasRole("admin", "cashier"), deleteOrderById);
+
+router.post("/pos", protect, hasRole("admin", "cashier"), createPOSOrder);
 
 // --- Current User Orders ---
-router.get("/my", protect, getMyOrders); // Orders of current waiter
+router.get("/my", protect, hasRole("user", "waiter"), getMyOrders);
 
 // --- Admin Order Management ---
-router.get("/admin/orders", protect, isAdmin, getAllOrders); // Get all orders
+router.get("/admin/orders", protect, hasRole("admin"), getAllOrders);
 
 export default router;

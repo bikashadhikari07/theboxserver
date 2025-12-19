@@ -89,7 +89,7 @@ where we can define it
 
 products with stcok required will have automatic stock management enabled
 
-**Endpoint**: `GET /api/products`
+**Endpoint**: ` /api/products`
 **Method** :Post
 
 ```json

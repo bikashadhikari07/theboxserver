@@ -22,7 +22,7 @@ connectDB();
 // Initialize app
 const app = express();
 
-// Middlewares
+// Middlewares[]
 app.use(cors());
 app.use(helmet());
 app.use(express.json());

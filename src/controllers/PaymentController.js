@@ -35,6 +35,8 @@ export const updatePayment = async (req, res) => {
         customer: customer?._id,
         amount: remaining, // <---- FIXED
         method: "credit",
+        note: note || "",
+        receivedBy: req.user._id, // <---- Audit: who received this
       });
 
       order.paymentMethod = "credit";
@@ -65,6 +67,8 @@ export const updatePayment = async (req, res) => {
       customer: customer?._id,
       amount: payAmount,
       method: paymentMethod,
+      note: note || "",
+      receivedBy: req.user._id, // <---- Audit: who received this
     });
 
     if (customer) await recalcCustomerCredit(customer._id);

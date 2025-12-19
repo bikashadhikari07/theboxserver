@@ -36,3 +36,32 @@ export const isSuperAdmin = (req, res, next) => {
     res.status(403).json({ message: "Forbidden: Superadmins only" });
   }
 };
+
+/// addded new iscashier and iswaiter middlewares
+
+export const isCashier = (req, res, next) => {
+  if (req.user && req.user.role === "cashier") {
+    next();
+  } else {
+    res.status(403).json({ message: "Forbidden: Cashiers only" });
+  }
+};
+
+export const isWaiter = (req, res, next) => {
+  if (req.user && req.user.role === "user") {
+    next();
+  } else {
+    res.status(403).json({ message: "Forbidden: Waiters only" });
+  }
+};
+
+/// fized hasRole to accept multiple roles
+export const hasRole = (...roles) => {
+  return (req, res, next) => {
+    if (req.user && roles.includes(req.user.role)) {
+      next();
+    } else {
+      res.status(403).json({ message: `Forbidden: ${roles.join(", ")} only` });
+    }
+  };
+};

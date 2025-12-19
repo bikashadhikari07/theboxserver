@@ -9,8 +9,20 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     role: {
       type: String,
-      enum: ["user", "admin", "superadmin"],
+      enum: ["user", "admin", "superadmin", "cashier", "waiter", "kitchen"],
+
       default: "user",
+    },
+    // 🧾 Audit / Logs
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
   { timestamps: true }

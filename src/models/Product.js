@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+///add expiry date for perishable products}
 
 const productSchema = new mongoose.Schema(
   {

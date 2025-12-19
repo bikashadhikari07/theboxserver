@@ -4,13 +4,13 @@ import {
   getCustomerById,
   createCustomer,
 } from "../controllers/custumerController.js";
-import { protect, isAdmin } from "../middleware/auth.js";
+import { protect, isAdmin, hasRole } from "../middleware/auth.js";
 
 const router = express.Router();
 
 // Only admin/cashier can see customers
-router.get("/", protect, isAdmin, getAllCustomers);
-router.get("/:id", protect, isAdmin, getCustomerById);
-router.post("/", protect, isAdmin, createCustomer);
+router.get("/", protect, hasRole("admin", "cashier"), getAllCustomers);
+router.get("/:id", protect, hasRole("admin", "cashier"), getCustomerById);
+router.post("/", protect, hasRole("admin", "cashier"), createCustomer);
 
 export default router;

@@ -208,6 +208,7 @@ export const createPOSOrder = async (req, res) => {
       amountPaid: 0,
       paymentMethod: paymentMethod || "unpaid",
       paymentStatus: "pending",
+      user: req.user._id, // audit: who created the order
     });
 
     res.json({
@@ -228,6 +229,203 @@ export const getPOSOrders = async (req, res) => {
     const orders = await Order.find({ source: "pos" }).populate("customer");
     res.json(orders);
   } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+//update waiter order
+
+// export const updateWaiterOrder = async (req, res) => {
+//   try {
+//     const { items, remarks } = req.body;
+//     const user = req.user;
+
+//     const order = await Order.findById(req.params.id);
+
+//     if (!order) {
+//       return res.status(404).json({ message: "Order not found" });
+//     }
+
+//     if (order.user.toString() !== user._id.toString()) {
+//       return res.status(403).json({ message: "Unauthorized" });
+//     }
+
+//     if (!items || !Array.isArray(items) || items.length === 0) {
+//       return res.status(400).json({ message: "Items required" });
+//     }
+
+//     // Restore previous stock
+//     for (const item of order.items) {
+//       const product = await Product.findById(item.product);
+//       if (product?.requiresStock) {
+//         product.stock += item.quantity;
+//         await product.save();
+//       }
+//     }
+
+//     // Fetch new products
+//     const productIds = items.map((i) => i.product);
+//     const products = await Product.find({ _id: { $in: productIds } });
+
+//     const productMap = {};
+//     products.forEach((p) => (productMap[p._id] = p));
+
+//     // Check stock again
+//     for (const item of items) {
+//       const p = productMap[item.product];
+//       if (!p) return res.status(400).json({ message: "Invalid product" });
+
+//       if (p.requiresStock && p.stock < item.quantity) {
+//         return res
+//           .status(400)
+//           .json({ message: `Not enough stock for ${p.name}` });
+//       }
+//     }
+
+//     // Deduct new stock
+//     for (const item of items) {
+//       const p = productMap[item.product];
+//       if (p.requiresStock) {
+//         p.stock -= item.quantity;
+//         await p.save();
+//       }
+//     }
+
+//     // Recalculate total
+//     const total = items.reduce(
+//       (sum, i) => sum + productMap[i.product].price * i.quantity,
+//       0
+//     );
+
+//     order.items = items;
+//     order.total = total;
+//     order.remarks = remarks || order.remarks;
+
+//     await order.save();
+
+//     res.json({ message: "Order updated", order });
+//   } catch (err) {
+//     console.error("Update waiter order error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+/// new and more advanced  audit
+export const updateWaiterOrder = async (req, res) => {
+  try {
+    const { items, remarks, note } = req.body;
+    const user = req.user;
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (order.user.toString() !== user._id.toString())
+      return res.status(403).json({ message: "Unauthorized" });
+
+    if (!items || !Array.isArray(items) || items.length === 0)
+      return res.status(400).json({ message: "Items required" });
+
+    // Save old items for audit
+    const oldItems = order.items.map((i) => ({ ...i._doc }));
+
+    // Restore previous stock
+    for (const item of order.items) {
+      const product = await Product.findById(item.product);
+      if (product?.requiresStock) {
+        product.stock += item.quantity;
+        await product.save();
+      }
+    }
+
+    // Fetch new products
+    const productIds = items.map((i) => i.product);
+    const products = await Product.find({ _id: { $in: productIds } });
+    const productMap = {};
+    products.forEach((p) => (productMap[p._id] = p));
+
+    // Check stock
+    for (const item of items) {
+      const p = productMap[item.product];
+      if (!p) return res.status(400).json({ message: "Invalid product" });
+      if (p.requiresStock && p.stock < item.quantity) {
+        return res
+          .status(400)
+          .json({ message: `Not enough stock for ${p.name}` });
+      }
+    }
+
+    // Deduct new stock
+    for (const item of items) {
+      const p = productMap[item.product];
+      if (p.requiresStock) {
+        p.stock -= item.quantity;
+        await p.save();
+      }
+    }
+
+    // Recalculate total
+    const total = items.reduce(
+      (sum, i) => sum + productMap[i.product].price * i.quantity,
+      0
+    );
+
+    // Update order
+    order.items = items;
+    order.total = total;
+    if (remarks) order.remarks = remarks;
+
+    // Add audit log
+    order.auditLog.push({
+      updatedBy: user._id,
+      action: "update_items",
+      changes: {
+        old: oldItems,
+        new: items,
+        oldRemarks: order.remarks,
+        newRemarks: remarks,
+      },
+      note: note || null,
+    });
+
+    await order.save();
+
+    res.json({ message: "Order updated", order });
+  } catch (err) {
+    console.error("Update waiter order error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+//
+export const deleteOrderById = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate("items.product");
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.status === "deleted") {
+      return res.status(400).json({ message: "Order already deleted" });
+    }
+
+    // Restore stock
+    for (const item of order.items) {
+      const product = await Product.findById(item.product._id);
+      if (product?.requiresStock) {
+        product.stock += item.quantity;
+        await product.save();
+      }
+    }
+
+    order.status = "deleted";
+    order.deletedAt = new Date();
+    order.deletedBy = req.user._id;
+    order.deleteReason = req.body.reason || "Admin removed order";
+
+    await order.save();
+
+    res.json({ message: "Order deleted (logged)" });
+  } catch (err) {
+    console.error("Delete order error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
